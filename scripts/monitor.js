@@ -1,3 +1,4 @@
+
 const axios = require('axios');
 
 const TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
@@ -35,37 +36,21 @@ async function sendTelegram(message) {
 async function sendWelcomeMessage() {
   if (welcomeSent) return;
   
-  const message = `🧪 <b>[وضع التجربة] بوت أضاحي مراقب يعمل!</b>\n\n✅ النظام نشط.\n\n📋 <b>سيتم إرسال رابط تجريبي فوراً (محاكاة التوفر).</b>\n\n🕐 الوقت: ${new Date().toLocaleString('ar-DZ')}`;
+  const message = `🐏 <b>بوت أضاحي مراقب يعمل!</b>\n\n✅ النظام نشط ويراقب ولاية عنابة.\n\n📋 <b>سأقوم بإشعارك فور توفر الحجز.</b>\n\n🕐 الوقت: ${new Date().toLocaleString('ar-DZ')}`;
   
   const sent = await sendTelegram(message);
   if (sent) {
     welcomeSent = true;
-    log('📨 تم إرسال رسالة الترحيب (وضع التجربة)', 'SUCCESS');
+    log('📨 تم إرسال رسالة الترحيب', 'SUCCESS');
   }
 }
 
-// فحص مع إعادة المحاولة التلقائية + محاكاة التوفر
+// فحص مع إعادة المحاولة التلقائية
 async function checkAvailabilityWithRetry(maxRetries = 3) {
   for (let attempt = 1; attempt <= maxRetries; attempt++) {
     try {
       log(`📡 محاولة ${attempt}/${maxRetries} - جاري فحص التوفر...`, 'CHECK');
       
-      // ========== 🧪 وضع التجربة: محاكاة التوفر ==========
-      const MOCK_AVAILABLE = true;  // ✅ تغيير إلى false لإيقاف المحاكاة
-      
-      if (MOCK_AVAILABLE && !sentNotifications['23']) {
-        log('🧪🧪🧪 [تجربة] محاكاة: ولاية عنابة متاحة! 🧪🧪🧪', 'ALERT');
-        
-        const alertMessage = `🧪 <b>[تجربة] تنبيه: ولاية عنابة أصبحت متاحة للحجز!</b>\n\n🔗 <a href="https://adhahi.dz/register">رابط التسجيل (تجربة)</a>\n\n📅 الوقت: ${new Date().toLocaleString('ar-DZ')}\n\n⚠️ هذا إشعار تجريبي فقط، افتح الرابط وجرب التعبئة التلقائية.`;
-        await sendTelegram(alertMessage);
-        
-        sentNotifications['23'] = true;
-        return true;
-      }
-      // ========== نهاية وضع التجربة ==========
-      
-      // الوضع العادي (معلق أثناء التجربة)
-      /*
       const response = await axios.get('https://adhahi.dz/api/v1/public/wilaya-quotas', {
         timeout: 15000,
         headers: {
@@ -91,9 +76,8 @@ async function checkAvailabilityWithRetry(maxRetries = 3) {
           sentNotifications['23'] = false;
         }
       }
-      */
       
-      return true;
+      return true; // نجاح
       
     } catch (error) {
       const isTimeout = error.message.includes('timeout');
@@ -104,6 +88,7 @@ async function checkAvailabilityWithRetry(maxRetries = 3) {
         return false;
       }
       
+      // انتظر 3 ثوانٍ قبل إعادة المحاولة
       await new Promise(resolve => setTimeout(resolve, 3000));
     }
   }
@@ -113,12 +98,15 @@ async function checkAvailabilityWithRetry(maxRetries = 3) {
 // ========== التشغيل الرئيسي ==========
 async function run() {
   log('═══════════════════════════════════════');
-  log('🧪 أضاحي مراقب - وضع التجربة (محاكاة التوفر)');
+  log('🐏 أضاحي مراقب - الإصدار النهائي');
   log('📍 مراقبة ولاية عنابة (23)');
   log(`📨 التيليغرام: ${TELEGRAM_BOT_TOKEN ? '✅ مفعل' : '❌ غير مفعل'}`);
   log('═══════════════════════════════════════');
   
+  // إرسال رسالة ترحيب (مرة واحدة فقط)
   await sendWelcomeMessage();
+  
+  // الفحص العادي
   await checkAvailabilityWithRetry(3);
 }
 
