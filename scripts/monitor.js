@@ -5,6 +5,7 @@ const TELEGRAM_CHAT_ID = process.env.TELEGRAM_CHAT_ID;
 
 let sentNotifications = {};
 let lastWilayaStatus = {};
+let testMessageSent = false;
 
 function log(message, type = 'INFO') {
   const timestamp = new Date().toISOString();
@@ -14,7 +15,6 @@ function log(message, type = 'INFO') {
 async function sendTelegram(message, chatId = null) {
   const targetChatId = chatId || TELEGRAM_CHAT_ID;
   if (!TELEGRAM_BOT_TOKEN || !targetChatId) {
-    log('⚠️ إشعارات التيليغرام غير مفعلة', 'WARN');
     return false;
   }
   
@@ -32,12 +32,11 @@ async function sendTelegram(message, chatId = null) {
   }
 }
 
-// معالجة الأوامر الواردة من تيليغرام
+// معالجة أوامر تيليغرام (دائماً تعمل أولاً)
 async function handleTelegramCommands() {
   if (!TELEGRAM_BOT_TOKEN) return;
   
   try {
-    // جلب آخر التحديثات
     const url = `https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/getUpdates`;
     const response = await axios.get(url, { timeout: 10000 });
     const updates = response.data.result || [];
@@ -48,72 +47,78 @@ async function handleTelegramCommands() {
       
       const chatId = message.chat.id;
       const text = message.text.trim();
-      const isCommand = text.startsWith('/');
       
-      if (!isCommand) continue;
+      // تأشير أن هذا التحديث تمت معالجته
+      await axios.get(`https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/getUpdates?offset=${update.update_id + 1}`);
       
-      log(`📨 أمر وارد: ${text} من ${chatId}`, 'INFO');
+      if (!text.startsWith('/')) continue;
+      
+      log(`📨 أمر وارد: ${text}`, 'INFO');
       
       let reply = '';
       
       switch (text.toLowerCase()) {
         case '/start':
-          reply = `🐏 <b>بوت أضاحي مراقب</b>\n\nمرحباً! أنا بوت لمراقبة حجوزات أضاحي.\n\n📋 <b>الأوامر المتاحة:</b>\n/status - حالة المراقبة\n/wilayas - الولايات المراقبة\n/check - فحص فوري\n/help - المساعدة`;
+          reply = `🐏 <b>بوت أضاحي مراقب</b>\n\nمرحباً! أنا بوت لمراقبة حجوزات أضاحي.\n\n📋 <b>الأوامر المتاحة:</b>\n/status - حالة المراقبة\n/check - فحص فوري\n/help - المساعدة`;
           break;
           
         case '/help':
-          reply = `📋 <b>قائمة الأوامر:</b>\n\n/status - عرض حالة المراقبة\n/wilayas - عرض الولايات المراقبة\n/check - إجراء فحص فوري\n/start - الترحيب`;
+          reply = `📋 <b>قائمة الأوامر:</b>\n\n/status - عرض حالة المراقبة\n/check - إجراء فحص فوري\n/start - الترحيب`;
           break;
           
         case '/status':
+          const isAvailable = lastWilayaStatus['23']?.available === true;
           reply = `📊 <b>حالة المراقبة</b>\n\n`;
           reply += `🟢 النظام: نشط\n`;
-          reply += `📍 عنابة: ${lastWilayaStatus['23']?.available === true ? '✅ متاحة' : '❌ غير متاحة'}\n`;
+          reply += `📍 عنابة: ${isAvailable ? '✅ متاحة' : '❌ غير متاحة'}\n`;
           reply += `🕐 آخر فحص: ${lastWilayaStatus['23']?.lastCheck || 'لم يتم بعد'}`;
           break;
           
-        case '/wilayas':
-          reply = `📍 <b>الولايات المراقبة حالياً:</b>\n\n`;
-          reply += `• عنابة (23) - ${lastWilayaStatus['23']?.available === true ? '✅ متاحة' : '❌ غير متاحة'}\n`;
-          break;
-          
         case '/check':
-          reply = `🔍 <b>جاري إجراء فحص فوري...</b>\nسأقوم بالرد عليك بعد اكتمال الفحص.`;
+          reply = `🔍 <b>جاري إجراء فحص فوري...</b>`;
           await sendTelegram(reply, chatId);
           
-          // إجراء فحص فوري
-          await checkAvailability(true);
-          
-          const status = lastWilayaStatus['23']?.available === true ? '✅ متاحة' : '❌ غير متاحة';
-          reply = `📊 <b>نتيجة الفحص:</b>\n\n📍 عنابة (23): ${status}\n🕐 الوقت: ${new Date().toLocaleString('ar-DZ')}`;
+          // فحص فوري
+          const result = await quickCheck();
+          const status = result ? '✅ متاحة' : '❌ غير متاحة';
+          reply = `📊 <b>نتيجة الفحص:</b>\n\n📍 عنابة: ${status}\n🕐 الوقت: ${new Date().toLocaleString('ar-DZ')}`;
           await sendTelegram(reply, chatId);
-          continue; // تجنب إرسال الرد الافتراضي
+          continue;
           
         default:
-          reply = `⚠️ أمر غير معروف. استخدم /help لعرض الأوامر المتاحة.`;
+          reply = `⚠️ أمر غير معروف. استخدم /help.`;
       }
       
       await sendTelegram(reply, chatId);
-      
-      // تأشير أن هذا التحديث تمت معالجته
-      await axios.get(`https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/getUpdates?offset=${update.update_id + 1}`);
     }
   } catch (error) {
-    log(`خطأ في معالجة أوامر التيليغرام: ${error.message}`, 'ERROR');
+    log(`خطأ في معالجة الأوامر: ${error.message}`, 'ERROR');
   }
 }
 
-async function checkAvailability(isManual = false) {
+// فحص سريع (10 ثوانٍ فقط)
+async function quickCheck() {
   try {
-    log(`📡 جاري فحص التوفر...${isManual ? ' (يدوي)' : ''}`, 'CHECK');
-    
     const response = await axios.get('https://adhahi.dz/api/v1/public/wilaya-quotas', {
-      timeout: 20000,
+      timeout: 10000,
+      headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36' }
+    });
+    const annaba = response.data.find(w => w.wilayaCode === '23');
+    return annaba?.available === true;
+  } catch (error) {
+    return false;
+  }
+}
+
+// الفحص العادي مع تحديث الحالة
+async function regularCheck() {
+  try {
+    const response = await axios.get('https://adhahi.dz/api/v1/public/wilaya-quotas', {
+      timeout: 10000,
       headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36' }
     });
     
-    const wilayas = response.data;
-    const annaba = wilayas.find(w => w.wilayaCode === '23');
+    const annaba = response.data.find(w => w.wilayaCode === '23');
     
     if (annaba) {
       const isAvailable = annaba.available === true;
@@ -126,33 +131,41 @@ async function checkAvailability(isManual = false) {
       log(`📍 عنابة: ${isAvailable ? '✅ متاحة' : '❌ غير متاحة'}`, 'INFO');
       
       if (isAvailable && !sentNotifications['23']) {
-        log('🚨 تنبيه: ولاية عنابة أصبحت متاحة للحجز!', 'ALERT');
-        
-        const message = `🚨 <b>تنبيه: ولاية ${annaba.wilayaNameAr} أصبحت متاحة للحجز!</b>\n\n🔗 <a href="https://adhahi.dz/register">رابط التسجيل</a>\n\n📅 الوقت: ${new Date().toLocaleString('ar-DZ')}`;
+        log('🚨 تنبيه: ولاية عنابة أصبحت متاحة!', 'ALERT');
+        const message = `🚨 <b>تنبيه: ولاية ${annaba.wilayaNameAr} أصبحت متاحة للحجز!</b>\n\n🔗 <a href="https://adhahi.dz/register">رابط التسجيل</a>`;
         await sendTelegram(message);
-        
         sentNotifications['23'] = true;
       } else if (!isAvailable) {
         sentNotifications['23'] = false;
       }
     }
     
+    return true;
   } catch (error) {
-    log(`⚠️ فشل الفحص: ${error.message}`, 'WARN');
+    log(`⚠️ فشل الفحص العادي: ${error.message}`, 'WARN');
+    return false;
   }
 }
 
+// ========== التشغيل الرئيسي ==========
 async function run() {
   log('═══════════════════════════════════════');
-  log('🐏 أضاحي مراقب - مع أوامر تيليغرام');
+  log('🐏 أضاحي مراقب - الإصدار المحسن');
   log('📍 مراقبة ولاية عنابة (23)');
   log('═══════════════════════════════════════');
   
-  // معالجة الأوامر الواردة
+  // 1. معالجة الأوامر أولاً (قد ترسل رسالة ترحيب)
   await handleTelegramCommands();
   
-  // إجراء الفحص العادي
-  await checkAvailability();
+  // 2. إرسال رسالة ترحيب تجريبية (مرة واحدة)
+  if (TELEGRAM_BOT_TOKEN && TELEGRAM_CHAT_ID && !testMessageSent) {
+    await sendTelegram('✅ <b>بوت أضاحي مراقب يعمل!</b>\n\nالأوامر المتاحة:\n/status - حالة المراقبة\n/check - فحص فوري\n/help - المساعدة');
+    testMessageSent = true;
+    log('📨 تم إرسال رسالة الترحيب', 'SUCCESS');
+  }
+  
+  // 3. الفحص العادي
+  await regularCheck();
 }
 
 run();
