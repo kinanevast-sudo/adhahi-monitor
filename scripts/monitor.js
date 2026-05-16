@@ -22,11 +22,13 @@ async function sendTelegram(message) {
       chat_id: TELEGRAM_CHAT_ID,
       text: message,
       parse_mode: 'HTML'
+    }, {
+      timeout: 30000
     });
     log('✅ تم إرسال إشعار التيليغرام', 'SUCCESS');
     return true;
   } catch (error) {
-    log(`❌ فشل الإرسال: ${error.message}`, 'ERROR');
+    log(`❌ فشل إرسال التيليغرام: ${error.message}`, 'ERROR');
     return false;
   }
 }
@@ -36,7 +38,7 @@ async function checkAvailability() {
     log('جاري فحص التوفر...', 'CHECK');
     
     const response = await axios.get('https://adhahi.dz/api/v1/public/wilaya-quotas', {
-      timeout: 30000
+      timeout: 60000  // ✅ زيادة الوقت إلى 60 ثانية
     });
     
     const wilayas = response.data;
@@ -44,19 +46,27 @@ async function checkAvailability() {
     
     if (annaba) {
       const isAvailable = annaba.available === true;
-      log(`عنابة (${annaba.wilayaCode}): ${isAvailable ? '✅ متاحة' : '❌ غير متاحة'}`);
+      log(`عنابة (${annaba.wilayaCode}): ${isAvailable ? '✅ متاحة' : '❌ غير متاحة'} - ${annaba.wilayaNameAr}`);
       
       if (isAvailable && !sentNotifications['23']) {
-        const message = `🚨 <b>تنبيه: ولاية ${annaba.wilayaNameAr} أصبحت متاحة للحجز!</b>\n\n🔗 <a href="https://adhahi.dz/register">رابط التسجيل</a>`;
+        log('🚨🚨🚨 تنبيه: ولاية عنابة أصبحت متاحة للحجز! 🚨🚨🚨', 'ALERT');
+        
+        const message = `🚨 <b>تنبيه: ولاية ${annaba.wilayaNameAr} أصبحت متاحة للحجز!</b>\n\n🔗 <a href="https://adhahi.dz/register">رابط التسجيل</a>\n\n📅 الوقت: ${new Date().toLocaleString('ar-DZ')}`;
         await sendTelegram(message);
+        
         sentNotifications['23'] = true;
       } else if (!isAvailable) {
         sentNotifications['23'] = false;
       }
+    } else {
+      log('⚠️ لم يتم العثور على ولاية عنابة في الرد', 'WARN');
     }
     
   } catch (error) {
     log(`خطأ: ${error.message}`, 'ERROR');
+    if (error.response) {
+      log(`الرد: ${JSON.stringify(error.response.data)}`, 'ERROR');
+    }
   }
 }
 
@@ -67,9 +77,9 @@ async function run() {
   log(`📨 التيليغرام: ${TELEGRAM_BOT_TOKEN ? '✅ مفعل' : '❌ غير مفعل'}`);
   log('═══════════════════════════════════════');
   
-  // رسالة اختبارية
+  // إرسال رسالة اختبارية إذا كان البوت مفعلاً
   if (TELEGRAM_BOT_TOKEN && TELEGRAM_CHAT_ID) {
-    await sendTelegram('✅ <b>بوت أضاحي مراقب يعمل بنجاح!</b>\n\nسأقوم بإشعارك فور توفر ولاية عنابة.');
+    await sendTelegram('✅ <b>بوت أضاحي مراقب يعمل بنجاح!</b>\n\nسأقوم بإشعارك فور توفر ولاية عنابة.\n\n⏱️ الوقت: ' + new Date().toLocaleString('ar-DZ'));
   }
   
   await checkAvailability();
