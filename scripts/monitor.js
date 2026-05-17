@@ -5,29 +5,20 @@ const fs = require('fs');
 const TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
 const TELEGRAM_CHAT_ID = process.env.TELEGRAM_CHAT_ID;
 
-// ========== الولايات المراقبة (اكتب الأرقام التي تريدها) ==========
-// أكواد الولايات:
-// 23 = عنابة, 16 = الجزائر, 31 = وهران, 25 = قسنطينة, 15 = تيزي وزو
-const WILAYAS_TO_MONITOR = ['23', '16', '31'];  // ← أضف أو اطرح الأرقام هنا
+// ========== الولايات المراقبة (افتراضية) ==========
+let WILAYAS_TO_MONITOR = ['23'];  // عنابة افتراضياً
 
 // حالة البوت
 let monitoringActive = true;
 let welcomeSent = false;
-let dailyReportSent = false;
 let lastReportDate = '';
+let dailyReportSent = false;
 
-// سجل الإشعارات المرسلة لكل ولاية
+// سجل الإشعارات
 let sentNotifications = {};
-
-// قائمة المهام
 let tasks = [];
 
-// ========== دوال مساعدة ==========
-function log(message, type = 'INFO') {
-    const timestamp = new Date().toISOString();
-    console.log(`[${timestamp}] [${type}] ${message}`);
-}
-
+// ========== أسماء الولايات ==========
 function getWilayaName(code) {
     const names = {
         '01': 'أدرار', '02': 'الشلف', '03': 'الأغواط', '04': 'أم البواقي', '05': 'باتنة',
@@ -46,33 +37,38 @@ function getWilayaName(code) {
     return names[code] || code;
 }
 
-// تحميل المهام
-function loadTasks() {
+// تحميل الإعدادات من ملف
+function loadSettings() {
     try {
-        if (fs.existsSync('tasks.json')) {
-            const data = fs.readFileSync('tasks.json', 'utf8');
-            tasks = JSON.parse(data);
-            log(`تم تحميل ${tasks.length} مهمة`, 'INFO');
+        if (fs.existsSync('settings.json')) {
+            const data = fs.readFileSync('settings.json', 'utf8');
+            const settings = JSON.parse(data);
+            if (settings.wilayas) WILAYAS_TO_MONITOR = settings.wilayas;
+            if (settings.tasks) tasks = settings.tasks;
+            log(`تم تحميل الإعدادات: ${WILAYAS_TO_MONITOR.length} ولاية`, 'INFO');
         }
     } catch (err) {
-        tasks = [];
+        log(`خطأ في تحميل الإعدادات: ${err.message}`, 'ERROR');
     }
 }
 
-// حفظ المهام
-function saveTasks() {
+// حفظ الإعدادات
+function saveSettings() {
     try {
-        fs.writeFileSync('tasks.json', JSON.stringify(tasks, null, 2));
+        const settings = { wilayas: WILAYAS_TO_MONITOR, tasks: tasks };
+        fs.writeFileSync('settings.json', JSON.stringify(settings, null, 2));
     } catch (err) {
-        log(`خطأ في حفظ المهام: ${err.message}`, 'ERROR');
+        log(`خطأ في حفظ الإعدادات: ${err.message}`, 'ERROR');
     }
 }
 
-// إرسال رسالة تيليغرام
+function log(message, type = 'INFO') {
+    const timestamp = new Date().toISOString();
+    console.log(`[${timestamp}] [${type}] ${message}`);
+}
+
 async function sendTelegram(message) {
-    if (!TELEGRAM_BOT_TOKEN || !TELEGRAM_CHAT_ID) {
-        return false;
-    }
+    if (!TELEGRAM_BOT_TOKEN || !TELEGRAM_CHAT_ID) return false;
     try {
         await axios.post(`https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage`, {
             chat_id: TELEGRAM_CHAT_ID,
@@ -112,50 +108,42 @@ async function handleCommands() {
 
             switch (text.toLowerCase()) {
                 case '/start':
-                    reply = `🐏 <b>بوت أضاحي مراقب</b>\n\nمرحباً! أنا بوت لمراقبة حجوزات أضاحي.\n\n📋 <b>الأوامر المتاحة:</b>\n/status - حالة البوت والولاية\n/tasks - قائمة المهام\n/addtask نص المهمة\n/deltask رقم\n/monitor_on - تشغيل المراقبة\n/monitor_off - إيقاف المراقبة\n/check - فحص فوري\n/report - تقرير جميع الولايات\n/wilayas - عرض الولايات المراقبة\n/help - المساعدة`;
+                    reply = `🐏 <b>بوت أضاحي مراقب</b>\n\nمرحباً!\n\n📋 <b>الأوامر المتاحة:</b>\n/status - حالة البوت\n/tasks - قائمة المهام\n/addtask نص\n/deltask رقم\n/addwilaya رقم - إضافة ولاية\n/removewilaya رقم - حذف ولاية\n/wilayas - عرض الولايات\n/monitor_on - تشغيل المراقبة\n/monitor_off - إيقاف المراقبة\n/check - فحص فوري\n/report - تقرير شامل\n/help - المساعدة`;
                     break;
 
                 case '/help':
-                    reply = `📋 <b>قائمة الأوامر:</b>\n\n/status - حالة المراقبة\n/tasks - عرض قائمة المهام\n/addtask مهمة - إضافة مهمة جديدة\n/deltask رقم - حذف مهمة\n/monitor_on - تشغيل المراقبة\n/monitor_off - إيقاف المراقبة\n/check - فحص فوري\n/report - تقرير جميع الولايات\n/wilayas - عرض الولايات المراقبة\n/start - الترحيب`;
+                    reply = `📋 <b>قائمة الأوامر:</b>\n\n/status - حالة المراقبة\n/tasks - عرض المهام\n/addtask مهمة - إضافة مهمة\n/deltask رقم - حذف مهمة\n/addwilaya رقم - إضافة ولاية\n/removewilaya رقم - حذف ولاية\n/wilayas - عرض الولايات المراقبة\n/monitor_on - تشغيل المراقبة\n/monitor_off - إيقاف المراقبة\n/check - فحص فوري\n/report - تقرير جميع الولايات\n/start - الترحيب`;
                     break;
 
                 case '/status':
-                    const statusText = monitoringActive ? '🟢 شغالة' : '🔴 متوقفة';
-                    let wilayasStatus = '';
-                    for (const code of WILAYAS_TO_MONITOR) {
-                        const notified = sentNotifications[code] ? 'تم الإشعار ✅' : 'في الانتظار ⏳';
-                        wilayasStatus += `\n• ${getWilayaName(code)} (${code}): ${notified}`;
-                    }
-                    reply = `📊 <b>حالة البوت</b>\n\nالمراقبة: ${statusText}\nعدد المهام: ${tasks.length}\nالولايات المراقبة:${wilayasStatus}`;
+                    reply = `📊 <b>حالة البوت</b>\n\nالمراقبة: ${monitoringActive ? '🟢 شغالة' : '🔴 متوقفة'}\nعدد المهام: ${tasks.length}\nالولايات: ${WILAYAS_TO_MONITOR.map(c => getWilayaName(c)).join(', ')}`;
                     break;
 
                 case '/tasks':
                     if (tasks.length === 0) {
-                        reply = `📋 <b>قائمة المهام</b>\n\nلا توجد مهام حالياً.\nأضف مهمة بـ: /addtask نص المهمة`;
+                        reply = `📋 لا توجد مهام. أضف بـ /addtask نص`;
                     } else {
-                        let taskList = '';
-                        tasks.forEach((task, index) => {
-                            taskList += `\n${index + 1}. ${task.text}`;
-                        });
-                        reply = `📋 <b>قائمة المهام</b>\n${taskList}\n\nلحذف مهمة: /deltask رقم`;
+                        let list = '';
+                        tasks.forEach((t, i) => list += `\n${i + 1}. ${t.text}`);
+                        reply = `📋 <b>المهام</b>${list}\n\nحذف: /deltask رقم`;
                     }
                     break;
 
                 case '/monitor_on':
                     monitoringActive = true;
-                    reply = `🟢 <b>تم تشغيل المراقبة</b>\n\nسأقوم بإشعارك فور توفر أي ولاية من: ${WILAYAS_TO_MONITOR.map(c => getWilayaName(c)).join(', ')}`;
+                    reply = `🟢 <b>تم تشغيل المراقبة</b>`;
                     break;
 
                 case '/monitor_off':
                     monitoringActive = false;
-                    reply = `🔴 <b>تم إيقاف المراقبة</b>\n\nلن يتم إرسال أي إشعارات حتى يتم التشغيل مرة أخرى.`;
+                    reply = `🔴 <b>تم إيقاف المراقبة</b>`;
                     break;
 
                 case '/check':
-                    reply = `🔍 <b>جاري الفحص...</b>`;
+                    reply = `🔍 جاري الفحص...`;
                     await sendTelegram(reply);
-                    await checkAvailability(true);
-                    reply = `✅ <b>تم الفحص</b>\n\nيمكنك استخدام /report لرؤية النتائج.`;
+                    await quickCheck();
+                    reply = `✅ تم الفحص. استخدم /report للنتائج.`;
                     await sendTelegram(reply);
                     continue;
 
@@ -165,201 +153,147 @@ async function handleCommands() {
                     continue;
 
                 case '/wilayas':
-                    let wilayasList = '';
-                    for (const code of WILAYAS_TO_MONITOR) {
-                        wilayasList += `\n• ${getWilayaName(code)} (${code})`;
-                    }
-                    reply = `📍 <b>الولايات المراقبة حالياً</b>${wilayasList}\n\nلتغييرها، عدّل المصفوفة WILAYAS_TO_MONITOR في الكود.`;
+                    reply = `📍 <b>الولايات المراقبة</b>\n${WILAYAS_TO_MONITOR.map(c => `• ${getWilayaName(c)} (${c})`).join('\n')}`;
                     break;
 
                 default:
                     if (text.startsWith('/addtask')) {
                         const taskText = text.substring(9).trim();
                         if (taskText) {
-                            tasks.push({ text: taskText, createdAt: new Date().toISOString() });
-                            saveTasks();
-                            reply = `✅ تم إضافة المهمة: "${taskText}"\nلديك الآن ${tasks.length} مهمة.`;
+                            tasks.push({ text: taskText });
+                            saveSettings();
+                            reply = `✅ تم إضافة: "${taskText}"`;
                         } else {
-                            reply = `⚠️ الرجاء كتابة نص المهمة بعد /addtask\nمثال: /addtask متابعة حجوزات أضاحي`;
+                            reply = `⚠️ اكتب نص المهمة بعد /addtask`;
                         }
-                    } else if (text.startsWith('/deltask')) {
-                        const taskNum = parseInt(text.substring(8).trim());
-                        if (isNaN(taskNum) || taskNum < 1 || taskNum > tasks.length) {
-                            reply = `⚠️ رقم غير صحيح. المهام المتاحة: 1 إلى ${tasks.length}`;
+                    } 
+                    else if (text.startsWith('/deltask')) {
+                        const num = parseInt(text.substring(8).trim());
+                        if (num > 0 && num <= tasks.length) {
+                            const removed = tasks.splice(num - 1, 1);
+                            saveSettings();
+                            reply = `✅ تم حذف: "${removed[0].text}"`;
                         } else {
-                            const removed = tasks.splice(taskNum - 1, 1);
-                            saveTasks();
-                            reply = `✅ تم حذف المهمة: "${removed[0].text}"`;
+                            reply = `⚠️ رقم غير صحيح (1-${tasks.length})`;
                         }
-                    } else {
-                        reply = `⚠️ أمر غير معروف. استخدم /help لعرض الأوامر المتاحة.`;
+                    }
+                    else if (text.startsWith('/addwilaya')) {
+                        const code = text.substring(11).trim();
+                        if (code && /^\d{2}$/.test(code)) {
+                            if (!WILAYAS_TO_MONITOR.includes(code)) {
+                                WILAYAS_TO_MONITOR.push(code);
+                                saveSettings();
+                                reply = `✅ تم إضافة ولاية ${getWilayaName(code)} (${code})`;
+                            } else {
+                                reply = `⚠️ ولاية ${getWilayaName(code)} موجودة بالفعل`;
+                            }
+                        } else {
+                            reply = `⚠️ اكتب رقم ولاية صحيح (مثال: /addwilaya 16)`;
+                        }
+                    }
+                    else if (text.startsWith('/removewilaya')) {
+                        const code = text.substring(13).trim();
+                        if (code && /^\d{2}$/.test(code)) {
+                            const index = WILAYAS_TO_MONITOR.indexOf(code);
+                            if (index !== -1) {
+                                WILAYAS_TO_MONITOR.splice(index, 1);
+                                saveSettings();
+                                reply = `✅ تم حذف ولاية ${getWilayaName(code)} (${code})`;
+                            } else {
+                                reply = `⚠️ ولاية ${getWilayaName(code)} غير موجودة`;
+                            }
+                        } else {
+                            reply = `⚠️ اكتب رقم ولاية صحيح (مثال: /removewilaya 16)`;
+                        }
+                    }
+                    else {
+                        reply = `⚠️ أمر غير معروف. /help للمساعدة`;
                     }
             }
 
             await sendTelegram(reply);
         }
     } catch (error) {
-        log(`خطأ في معالجة الأوامر: ${error.message}`, 'ERROR');
+        log(`خطأ في الأوامر: ${error.message}`, 'ERROR');
     }
 }
 
-// الحصول على تقرير كامل عن جميع الولايات
+async function quickCheck() {
+    try {
+        const response = await axios.get('https://adhahi.dz/api/v1/public/wilaya-quotas', { timeout: 10000 });
+        const allWilayas = response.data;
+        for (const code of WILAYAS_TO_MONITOR) {
+            const wilaya = allWilayas.find(w => w.wilayaCode === code);
+            if (wilaya?.available && !sentNotifications[code]) {
+                await sendTelegram(`🚨 <b>ولاية ${wilaya.wilayaNameAr} متاحة!</b>\n\n🔗 <a href="https://adhahi.dz/register">رابط التسجيل</a>`);
+                sentNotifications[code] = true;
+            }
+        }
+    } catch (error) {
+        log(`فحص سريع فشل: ${error.message}`, 'ERROR');
+    }
+}
+
 async function getFullReport() {
     try {
-        const response = await axios.get('https://adhahi.dz/api/v1/public/wilaya-quotas', {
-            timeout: 15000,
-            headers: { 'User-Agent': 'Mozilla/5.0' }
-        });
+        const response = await axios.get('https://adhahi.dz/api/v1/public/wilaya-quotas', { timeout: 10000 });
         const allWilayas = response.data;
+        let report = `📊 <b>تقرير الولايات</b>\n\n🕐 ${new Date().toLocaleString('ar-DZ')}\n━━━━━━━━━━━━━━━\n`;
+        for (const code of WILAYAS_TO_MONITOR) {
+            const wilaya = allWilayas.find(w => w.wilayaCode === code);
+            if (wilaya) {
+                const status = wilaya.available ? '✅ متاحة' : '❌ غير متاحة';
+                report += `\n📍 ${wilaya.wilayaNameAr} (${code}): ${status}`;
+            }
+        }
+        return report;
+    } catch (error) {
+        return `❌ خطأ: ${error.message}`;
+    }
+}
 
-        let report = `📊 <b>تقرير حالة الولايات</b>\n\n`;
-        report += `🕐 ${new Date().toLocaleString('ar-DZ')}\n`;
-        report += `━━━━━━━━━━━━━━━━━━━━━\n`;
+async function checkAvailability() {
+    if (!monitoringActive) return;
+
+    try {
+        const response = await axios.get('https://adhahi.dz/api/v1/public/wilaya-quotas', { timeout: 10000 });
+        const allWilayas = response.data;
 
         for (const code of WILAYAS_TO_MONITOR) {
             const wilaya = allWilayas.find(w => w.wilayaCode === code);
             if (wilaya) {
                 const isAvailable = wilaya.available === true;
-                const status = isAvailable ? '✅ <b>متاحة</b>' : '❌ غير متاحة';
-                report += `\n📍 ${wilaya.wilayaNameAr} (${code}): ${status}`;
-            } else {
-                report += `\n📍 ${getWilayaName(code)} (${code}): ⚠️ غير معروف`;
-            }
-        }
-
-        report += `\n\n━━━━━━━━━━━━━━━━━━━━━\n`;
-        report += `🟢 المراقبة: ${monitoringActive ? 'نشطة' : 'متوقفة'}`;
-        return report;
-    } catch (error) {
-        return `❌ <b>خطأ في جلب التقرير</b>\n\n${error.message}`;
-    }
-}
-
-// إرسال إشعار بدء المراقبة اليومية
-async function sendDailyStartNotification() {
-    const now = new Date();
-    const hour = now.getHours();
-    const today = now.toISOString().split('T')[0];
-
-    // بين 8 و 9 صباحاً
-    if (hour >= 8 && hour < 9 && lastReportDate !== today && monitoringActive) {
-        lastReportDate = today;
-        const message = `🌅 <b>بدء المراقبة اليومية</b>\n\n📅 التاريخ: ${now.toLocaleDateString('ar-DZ')}\n📍 الولايات: ${WILAYAS_TO_MONITOR.map(c => getWilayaName(c)).join(', ')}\n\nسأقوم بإشعارك فور توفر أي ولاية.`;
-        await sendTelegram(message);
-        log('📨 تم إرسال إشعار بدء المراقبة اليومية', 'SUCCESS');
-    }
-}
-
-// إرسال تقرير نهاية اليوم
-async function sendDailyEndNotification() {
-    const now = new Date();
-    const hour = now.getHours();
-    const today = now.toISOString().split('T')[0];
-
-    // بين 11 و 12 ليلاً
-    if (hour >= 23 && hour < 24 && lastReportDate === today && !dailyReportSent) {
-        dailyReportSent = true;
-        const report = await getFullReport();
-        const message = `🌙 <b>تقرير نهاية اليوم</b>\n\n${report}`;
-        await sendTelegram(message);
-        log('📨 تم إرسال تقرير نهاية اليوم', 'SUCCESS');
-    } else if (hour === 0) {
-        // إعادة تعيين في منتصف الليل
-        dailyReportSent = false;
-        lastReportDate = '';
-    }
-}
-
-// فحص التوفر (مع إعادة محاولة)
-async function checkAvailability(isManual = false) {
-    if (!monitoringActive && !isManual) {
-        log('⏸ المراقبة متوقفة (حسب أمر المستخدم)', 'INFO');
-        return;
-    }
-
-    for (let attempt = 1; attempt <= 3; attempt++) {
-        try {
-            log(`📡 محاولة ${attempt}/3 - جاري فحص التوفر...`, 'CHECK');
-
-            const response = await axios.get('https://adhahi.dz/api/v1/public/wilaya-quotas', {
-                timeout: 15000,
-                headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36' }
-            });
-
-            const allWilayas = response.data;
-            let anyAvailable = false;
-
-            for (const code of WILAYAS_TO_MONITOR) {
-                const wilaya = allWilayas.find(w => w.wilayaCode === code);
-                if (wilaya) {
-                    const isAvailable = wilaya.available === true;
-                    log(`📍 ${wilaya.wilayaNameAr} (${code}): ${isAvailable ? '✅ متاحة' : '❌ غير متاحة'}`, 'INFO');
-
-                    if (isAvailable && !sentNotifications[code]) {
-                        log(`🚨 تنبيه: ولاية ${wilaya.wilayaNameAr} أصبحت متاحة للحجز!`, 'ALERT');
-                        const message = `🚨 <b>تنبيه: ولاية ${wilaya.wilayaNameAr} أصبحت متاحة للحجز!</b>\n\n🔗 <a href="https://adhahi.dz/register">رابط التسجيل</a>\n\n📅 الوقت: ${new Date().toLocaleString('ar-DZ')}`;
-                        await sendTelegram(message);
-                        sentNotifications[code] = true;
-                        anyAvailable = true;
-                    } else if (!isAvailable) {
-                        sentNotifications[code] = false;
-                    }
+                if (isAvailable && !sentNotifications[code]) {
+                    log(`🚨 ${wilaya.wilayaNameAr} متاحة!`, 'ALERT');
+                    await sendTelegram(`🚨 <b>تنبيه: ولاية ${wilaya.wilayaNameAr} متاحة!</b>\n\n🔗 <a href="https://adhahi.dz/register">رابط التسجيل</a>`);
+                    sentNotifications[code] = true;
+                } else if (!isAvailable) {
+                    sentNotifications[code] = false;
                 }
             }
-
-            return true;
-
-        } catch (error) {
-            const isTimeout = error.message.includes('timeout');
-            log(`⚠️ المحاولة ${attempt} فشلت: ${isTimeout ? 'انتهى الوقت' : error.message}`, 'WARN');
-
-            if (attempt === 3) {
-                log('❌ جميع المحاولات فشلت، سيتم إعادة المحاولة في الدقيقة القادمة', 'ERROR');
-                return false;
-            }
-
-            await new Promise(resolve => setTimeout(resolve, 3000));
         }
+    } catch (error) {
+        log(`فحص فشل: ${error.message}`, 'WARN');
     }
-    return false;
 }
 
-// ========== التشغيل الرئيسي ==========
+// ========== التشغيل ==========
 async function run() {
     log('═══════════════════════════════════════');
-    log('🐏 أضاحي مراقب - الإصدار المتكامل');
-    log(`📍 الولايات المراقبة: ${WILAYAS_TO_MONITOR.map(c => getWilayaName(c)).join(', ')}`);
-    log(`📨 التيليغرام: ${TELEGRAM_BOT_TOKEN ? '✅ مفعل' : '❌ غير مفعل'}`);
+    log('🐏 أضاحي مراقب - النسخة المستقرة');
+    log(`الولايات: ${WILAYAS_TO_MONITOR.map(c => getWilayaName(c)).join(', ')}`);
     log('═══════════════════════════════════════');
 
-    loadTasks();
-
-    // معالجة الأوامر أولاً
+    loadSettings();
     await handleCommands();
 
-    // إرسال رسالة ترحيب (مرة واحدة)
     if (!welcomeSent) {
-        const welcomeMessage = `🐏 <b>بوت أضاحي مراقب يعمل!</b>\n\n✅ النظام نشط.\n📍 الولايات المراقبة:\n${WILAYAS_TO_MONITOR.map(c => `• ${getWilayaName(c)} (${c})`).join('\n')}\n\n/help للأوامر`;
-        await sendTelegram(welcomeMessage);
+        await sendTelegram(`✅ <b>بوت أضاحي مراقب يعمل!</b>\n\nالولايات: ${WILAYAS_TO_MONITOR.map(c => getWilayaName(c)).join(', ')}\n/help للأوامر`);
         welcomeSent = true;
     }
 
-    // إشعار بدء المراقبة اليومية
-    await sendDailyStartNotification();
-
-    // الفحص العادي
-    await checkAvailability(false);
-
-    // تقرير نهاية اليوم
-    await sendDailyEndNotification();
+    await checkAvailability();
 }
 
-// تشغيل الدوال بشكل دوري
-setInterval(async () => {
-    await handleCommands();
-    await checkAvailability(false);
-    await sendDailyStartNotification();
-    await sendDailyEndNotification();
-}, 60000); // كل دقيقة
-
 run();
+setInterval(() => { run(); }, 60000);
