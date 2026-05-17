@@ -1,23 +1,21 @@
-name: 🐏 Adhahi Monitor
+name: Adhahi Monitor
 
 on:
   schedule:
-    - cron: '*/1 7-22 * * *'
+    - cron: '*/2 * * * *'   # كل دقيقتين
   workflow_dispatch:
 
 jobs:
-  monitor:
+  check:
     runs-on: ubuntu-latest
-    timeout-minutes: 3
+    timeout-minutes: 1
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: '20'
-      - name: Install dependencies
-        run: npm install axios
-      - name: Run monitor
-        run: node scripts/monitor.js
+      - run: npm install axios
+      - run: node scripts/monitor.js
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
