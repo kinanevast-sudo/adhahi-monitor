@@ -5,6 +5,7 @@ const TELEGRAM_CHAT_ID = process.env.TELEGRAM_CHAT_ID;
 
 let notified = false;
 let lastKeepAlive = 0;
+let lastOpenWilayas = []; // تخزين آخر الولايات المفتوحة لمنع التكرار
 
 function log(msg) {
     console.log(`[${new Date().toISOString()}] ${msg}`);
@@ -36,11 +37,16 @@ async function sendKeepAlive() {
         lastKeepAlive = now;
 
         await sendTelegram(
-            `🟢 <b>البوت مازال يعمل</b>\n\n🕐 ${new Date().toLocaleString('ar-DZ')}\n📍 مراقبة: عنابة (23)`
+            `🟢 <b>البوت مازال يعمل</b>\n\n🕐 ${new Date().toLocaleString('ar-DZ')}\n📍 مراقبة: جميع الولايات`
         );
 
         log('📨 تم إرسال رسالة الاستمرارية');
     }
+}
+
+// الحصول على اسم الولاية بالعربية من الكود
+function getWilayaName(wilaya) {
+    return wilaya.wilayaNameAr || wilaya.wilayaNameFr || wilaya.wilayaCode;
 }
 
 async function check() {
@@ -49,20 +55,50 @@ async function check() {
             timeout: 15000
         });
 
-        const annaba = res.data.find(w => w.wilayaCode === '23');
-
+        const wilayas = res.data;
+        
+        // تصفية الولايات المتاحة (available === true)
+        const openWilayas = wilayas.filter(w => w.available === true);
+        
+        // التحقق من عنابة بشكل منفصل للإشعار الفردي (للحفاظ على السلوك الأصلي)
+        const annaba = wilayas.find(w => w.wilayaCode === '23');
+        
         if (annaba) {
-            const available = annaba.available === true;
-            log(`عنابة: ${available ? '✅ متاحة' : '❌ غير متاحة'}`);
+            const annabaAvailable = annaba.available === true;
+            log(`عنابة: ${annabaAvailable ? '✅ متاحة' : '❌ غير متاحة'}`);
 
-            if (available && !notified) {
+            if (annabaAvailable && !notified) {
                 await sendTelegram(
                     `🚨 <b>عنابة متاحة للحجز!</b>\n\n🔗 https://adhahi.dz/register\n🕐 ${new Date().toLocaleString('ar-DZ')}`
                 );
                 notified = true;
-            } else if (!available) {
+            } else if (!annabaAvailable) {
                 notified = false;
             }
+        }
+        
+        // إرسال قائمة بجميع الولايات المفتوحة (إذا تغيرت القائمة)
+        const openWilayasNames = openWilayas.map(w => `• ${getWilayaName(w)} (${w.wilayaCode})`).join('\n');
+        const currentOpenList = openWilayas.map(w => w.wilayaCode).sort().join(',');
+        const lastOpenList = lastOpenWilayas.sort().join(',');
+        
+        // إذا تغيرت قائمة الولايات المفتوحة أو كان هناك ولايات مفتوحة
+        if (openWilayas.length > 0 && currentOpenList !== lastOpenList) {
+            let message = `📊 <b>الولايات المتاحة للحجز حالياً</b>\n\n${openWilayasNames}\n\n🕐 ${new Date().toLocaleString('ar-DZ')}`;
+            
+            // إضافة رابط التسجيل العام
+            if (openWilayas.length > 0) {
+                message += `\n\n🔗 https://adhahi.dz/register`;
+            }
+            
+            await sendTelegram(message);
+            lastOpenWilayas = openWilayas.map(w => w.wilayaCode);
+            log(`📨 تم إرسال قائمة الولايات المفتوحة: ${openWilayas.length} ولاية`);
+        } else if (openWilayas.length === 0 && lastOpenWilayas.length > 0) {
+            // جميع الولايات أغلقت
+            await sendTelegram(`🔒 <b>جميع الولايات أغلقت</b>\n\n🕐 ${new Date().toLocaleString('ar-DZ')}`);
+            lastOpenWilayas = [];
+            log('📨 تم إرسال إشعار إغلاق جميع الولايات');
         }
 
         await sendKeepAlive();
@@ -74,14 +110,14 @@ async function check() {
 
 async function start() {
     log('════════════════════════════');
-    log('🐏 بوت مراقبة أضاحي');
-    log('📍 عنابة (23)');
+    log('🐏 بوت مراقبة أضاحي - جميع الولايات');
+    log('📍 مراقبة جميع الولايات المفتوحة');
     log('⏱️ فحص كل دقيقتين');
     log('════════════════════════════');
 
     // رسالة البداية (مرة واحدة)
     await sendTelegram(
-        '✅ <b>بوت المراقبة يعمل</b>\n📍 عنابة (23)\n⏱️ فحص كل دقيقتين\n📢 سيتم الإشعار فور التوفر'
+        '✅ <b>بوت المراقبة يعمل</b>\n📍 مراقبة جميع الولايات\n⏱️ فحص كل دقيقتين\n📢 سيتم الإشعار عند فتح أي ولاية'
     );
 
     const startTime = Date.now();
